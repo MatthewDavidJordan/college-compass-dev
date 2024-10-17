@@ -1,9 +1,9 @@
+import { getAdvisorById } from '@/lib/queries';
 import { NextResponse } from 'next/server';
-import { Advisor, getAdvisorById } from '@/lib/queries';
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   try {
-    const advisor: Advisor | null = await getAdvisorById(Number(params.id));
+    const advisor = await getAdvisorById(Number(params.id));
     return NextResponse.json(advisor, { status: 200 });
   } catch (error) {
     if (error instanceof Error) {

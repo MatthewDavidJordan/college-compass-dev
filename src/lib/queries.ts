@@ -1,4 +1,6 @@
-import { AuthOtpResponse, createClient, SupabaseClient } from '@supabase/supabase-js';
+'use server';
+
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { Database } from './supabase-types';
 
 // Create the typed Supabase client
@@ -7,11 +9,17 @@ const supabase: SupabaseClient<Database> = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
 );
 
+const adminSupabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABSE_SERVICE_ROLE_KEY!,
+);
+
 // Type definitions for custom tables
 export type Advisor = Database['public']['Tables']['advisors']['Row'];
 export type Meeting = Database['public']['Tables']['meetings']['Row'];
 export type College = Database['public']['Tables']['schools']['Row'];
 export type Availability = Database['public']['Tables']['availability']['Row'];
+export type Student = Database['public']['Tables']['students']['Row'];
 
 // Supabase Auth User type
 export type AuthUser = {
@@ -19,9 +27,23 @@ export type AuthUser = {
   email: string;
 };
 
-// OTP sign in
-export const signInWithOtp = async (email: string): Promise<AuthOtpResponse> =>
-  supabase.auth.signInWithOtp({ email });
+export const signUp = async (email: string, name: string | undefined) => {
+  const existingUser = await adminSupabase.from('profiles').select('*').eq('email', email).single();
+
+  if (existingUser.data) return existingUser.data;
+  const { data } = await adminSupabase.auth.admin.createUser({
+    email,
+    user_metadata: { name },
+  });
+
+  return data.user;
+};
+
+export const createStudent = async (user_id: string) => {
+  const { data, error } = await supabase.from('students').insert({ user_id }).select().single();
+  if (error) throw error;
+  return data;
+};
 
 // Query to get user by ID (from Supabase Auth)
 export const getUserById = async (userId: AuthUser['id']): Promise<AuthUser | null> => {
@@ -65,16 +87,24 @@ export const getAdvisorsForCollege = async (
   return data || [];
 };
 
-export const getAdvisorById = async (advisorId: Advisor['advisor_id']): Promise<Advisor | null> => {
-  const { data, error } = await supabase
+export const getAdvisorById = async (advisorId: Advisor['advisor_id']) => {
+  const { data: advisorData, error: advisorError } = await supabase
     .from('advisors')
     .select(
       'advisor_id, user_id, school_id, availability_id, payment_info_id, bio, advisor_name, advisor_image',
     )
     .eq('advisor_id', advisorId)
     .single();
-  if (error) throw error;
-  return data;
+  if (advisorError) throw advisorError;
+
+  const { data: schoolData, error: schoolError } = await supabase
+    .from('schools')
+    .select('*')
+    .eq('school_id', advisorData.school_id)
+    .single();
+  if (schoolError) throw schoolError;
+
+  return { ...advisorData, ...schoolData };
 };
 
 // Query to get the schedule of an advisor by advisor ID using Availability type
@@ -96,7 +126,7 @@ export const createMeeting = async (
   studentId: Meeting['student_id'],
   startTime: Meeting['start_time'],
   endTime: Meeting['end_time'],
-): Promise<Meeting | null> => {
+): Promise<Meeting> => {
   const { data, error } = await supabase
     .from('meetings')
     .insert({
@@ -105,6 +135,7 @@ export const createMeeting = async (
       start_time: startTime,
       end_time: endTime,
     })
+    .select()
     .single();
   if (error) throw error;
   return data;
